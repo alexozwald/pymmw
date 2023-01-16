@@ -33,7 +33,7 @@ _meta_ = {
     'app': {
         'logMagRange':         ('plot_range_profile', ),  # 'capture_range_profile',),
         'noiseProfile':        ('plot_range_profile', ), 
-        'detectedObjects':     ('plot_detected_objects', ),  # 'simple_cfar_clustering',),
+        'detectedObjects':     ('plot_range_velocity', ),  # 'simple_cfar_clustering',),
         'rangeAzimuthHeatMap': ('plot_range_azimuth_heat_map', ),
         'rangeDopplerHeatMap': ('plot_range_doppler_heat_map', )
     }
@@ -257,14 +257,14 @@ def aux_buffer(input, output, head=40, indices={
     
     
     def aux_object(dat, oth, n=16):  # detected points/objects
-        #x = struct.unpack('f',dat[ 0: 4])[0]
-        #y = struct.unpack('f',dat[ 4: 8])[0]
-        #z = struct.unpack('f',dat[ 8:12])[0]
-        #p = struct.unpack('f',dat[12: n])[0]
-        x = intify(dat[ 0: 4])
-        y = intify(dat[ 4: 8])
-        z = intify(dat[ 8:12])
-        p = intify(dat[12: n])
+        x = struct.unpack('f',dat[ 0: 4])[0]
+        y = struct.unpack('f',dat[ 4: 8])[0]
+        z = struct.unpack('f',dat[ 8:12])[0]
+        p = struct.unpack('f',dat[12: n])[0]
+        # x = intify(dat[ 0: 4])
+        # y = intify(dat[ 4: 8])
+        # z = intify(dat[ 8:12])
+        # p = intify(dat[12: n])
         if x > 32767: x -= 65536
         if y > 32767: y -= 65536
         if z > 32767: z -= 65536
