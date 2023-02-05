@@ -70,9 +70,9 @@ def _init_(prt, dev, cfg, dat=None):
             con = [c for c in con if _meta_['dbg'] in c]
             if len(con) > 0:
                 con = con[0]
-                frame_values = cfg['profileCfg']['adcSamples'] * num_rx_antenna(cfg) * chirps_per_frame(cfg) 
+                frame_values = cfg['profileCfg']['adcSamples'] * num_rx_antenna(cfg) * chirps_per_frame(cfg)
                 value_size = 2 + 2
-                count = cfg['frameCfg']['frames']                
+                count = cfg['frameCfg']['frames']
                 frame_size = frame_values * value_size
                 if count == 0:
                     count = max(1, l3_size // frame_size)
@@ -87,20 +87,20 @@ def _init_(prt, dev, cfg, dat=None):
 
 
 def _conf_(cfg):
-    
+
     global verbose
 
     c = dict(cfg)
     p = {'rangebias': float('nan')}
-        
+
     if '_comment_' in c:
-        c.pop('_comment_', None)  # remove entry        
-    
+        c.pop('_comment_', None)  # remove entry
+
     if '_settings_' in c:
-        
+
         rx_ant = int(c['_settings_']['rxAntennas'])
         tx_ant = int(c['_settings_']['txAntennas'])
-        
+
         # common
         if c['channelCfg']['rxMask'] is None:
             c['channelCfg']['rxMask'] = 2**rx_ant - 1
@@ -110,15 +110,15 @@ def _conf_(cfg):
             if n == 1: n = 0
             else: n = 2 * n
             c['channelCfg']['txMask'] = 1 + n
-            
+
         # cli output
         if 'verbose' in c['_settings_'] and c['_settings_']['verbose'] is not None:
             verbose = c['_settings_']['verbose']
-                
+
         p['range_bias'] = c['_settings_']['rangeBias']
-        
+
         c.pop('_settings_', None)  # remove entry
-                
+
     return c, p
 
 
@@ -127,7 +127,7 @@ def _proc_(cfg, par, err={1: 'miss', 2: 'exec', 3: 'plot'}):
     for _, app in apps.items(): app.kill()
     apps.clear()
     for app in _meta_['app']:
-        if type(app) not in (list, tuple): app = (app,)             
+        if type(app) not in (list, tuple): app = (app,)
         for item in app:
             if item not in apps:
                 apps[item], values = exec_app(item, (cfg, par, ))
@@ -156,18 +156,18 @@ def _grab_(tag):
 
 # ------------------------------------------------
 
-def _data_(con, sn, sval, fval, cnt, prt, infinite=True, width=16):        
-    
+def _data_(con, sn, sval, fval, cnt, prt, infinite=True, width=16):
+
     time.sleep(1)
-    
+
     active = True
-    
+
     while active:
 
         try:
 
             print_log('read memory: address={}, bytes={}, frames={}'.format(hex(_meta_['add']), sval * fval * cnt, cnt), sys._getframe())
-            
+
             buf = tiflash.memory_read(
                 address=_meta_['add'],
                 num_bytes=sval * fval * cnt,
@@ -200,5 +200,5 @@ def _data_(con, sn, sval, fval, cnt, prt, infinite=True, width=16):
         if infinite:
             send_config(prt, None, None)
             time.sleep(0.5)
-            
+
         active = infinite

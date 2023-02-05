@@ -13,12 +13,12 @@ import threading
 import time
 
 try:
-       
+
     import numpy as np
-    
+
     import matplotlib as mpl
     import matplotlib.pyplot as plt
-    
+
     __base__ = os.path.dirname(os.path.abspath(__file__))
     while 'lib' not in [d for d in os.listdir(__base__) if os.path.isdir(os.path.join(__base__, d))]: __base__ = os.path.join(__base__, '..')
     if __base__ not in sys.path: sys.path.append(__base__)
@@ -29,7 +29,7 @@ try:
 except ImportError as e:
     print(e, file=sys.stderr, flush=True)
     sys.exit(3)
-    
+
 # ------------------------------------------------
 
 def plot_buffer(fig, idx, xy, a, k, n, b):
@@ -39,7 +39,7 @@ def plot_buffer(fig, idx, xy, a, k, n, b):
         for j, samples in enumerate(chirps):
             chirp[i] += np.asarray(samples, dtype=np.complex)
         chirp[i] /= n
-    
+
     rng = [r*(i/(k-1)) - b for i in range(k)]
     win = np.ones(k)  # no windowing
     ss = [np.abs(np.fft.fft(chirp[i]))*win for i in range(a)]
@@ -56,16 +56,16 @@ def plot_buffer(fig, idx, xy, a, k, n, b):
     if idx == l:  # setup plots
 
         fig.tight_layout(pad=1.5)
-           
+
         for i in range(l):
             fig.axes[i].change_geometry(1, l+1, i+1)
-                                    
+
         fig.set_size_inches(4*(l+1), 5)
         ax = fig.add_subplot(1, l+1, l+1)
- 
+
         for i in range(len(ss)):
             ax.plot(rng, ss[i], linewidth=1.0, alpha=1.0 / len(ss))
-          
+
         ax.grid(linestyle=':', linewidth=0.5)
         ax.legend(['RX{}'.format(i) for i in range(len(ss))])
         ax.set_title('frame {}'.format(idx+1))
@@ -74,19 +74,19 @@ def plot_buffer(fig, idx, xy, a, k, n, b):
 
         for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] + ax.get_xticklabels() + ax.get_yticklabels()):
             item.set_fontsize('medium')
-        
+
     else:  # update plots
 
         axs = fig.get_axes()
         ax = axs[idx]
         col = []
-        
+
         while len(ax.lines) > 0:
-            col.append(ax.lines.pop(0).get_color())   
-                     
+            col.append(ax.lines.pop(0).get_color())
+
         for i in range(len(ss)):
             ax.plot(rng, ss[i], linewidth=1.0, c=col[i], alpha=1.0 / len(ss))
-            
+
         ax.relim()
         ax.autoscale_view()
 
@@ -96,7 +96,7 @@ def plot_buffer(fig, idx, xy, a, k, n, b):
     fig.canvas.draw()
     fig.canvas.flush_events()
     fig.canvas.set_window_title('time: {}'.format(time.time()))
-   
+
 
 def update_data(fig, a, k, n, s, b, timeout=2):
     size = a * k * n * 2
@@ -117,7 +117,7 @@ def update_data(fig, a, k, n, s, b, timeout=2):
                         buf[ai][ci][si] = 1j*value if s else value
                     else:
                         buf[ai][ci][si] += value if s else 1j*value
-                    vi += 1                
+                    vi += 1
                 if vi == size:
                     plot_buffer(fig, fi, buf, a, k, n, b)
                     buf = [[[0] * k for _ in range(n)] for _ in range(a)]
@@ -133,7 +133,7 @@ if __name__ == "__main__":
     if len(sys.argv[1:]) != 6:
         print('Usage: {} {}'.format(sys.argv[0].split(os.sep)[-1], '<num_rx_antenna> <range_maximum> <range_bias> <adc_sample_swap> <samples_per_chirp> <chirps_per_frame>'))
         sys.exit(1)
-       
+
     try:
 
         a = int(float(sys.argv[1]))
@@ -146,7 +146,7 @@ if __name__ == "__main__":
         fig = plt.figure()
         fig.suptitle('DFT of IF signals: chirps/frame={}, samples/chirp={}'.format(n, k), fontsize='medium')
         fig.canvas.manager.set_window_title('...')
-        
+
         tu = threading.Thread(target=update_data, args=(fig, a, k, n, s, b))
         tu.daemon = True
         tu.start()

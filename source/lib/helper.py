@@ -16,11 +16,11 @@ from lib.utility import *
 # ------------------------------------------------
 
 # log2_10 = 20 * np.log10(2)
-# 
+#
 # def log_to_lin(a):
 #     return 2**(a)  # * log_lin) # * comp_lin
-# 
-# 
+#
+#
 # def lin_to_log(a):
 #     return a * log2_10  # * log_lin + comp_log
 

@@ -15,7 +15,7 @@ import queue
 # ------------------------------------------------
 
 def update_data(q):
-    while True:     
+    while True:
         line = sys.stdin.readline()
         try:
             temp = json.loads(line)
@@ -33,11 +33,11 @@ def update_log(q, func):
 
 
 def start_capture(func):
-    
+
     q = queue.Queue()
-    
+
     threading.Thread(target=update_log, args=(q, func)).start()
-     
+
     tu = threading.Thread(target=update_data, args=(q, ))
     tu.daemon = True
     tu.start()

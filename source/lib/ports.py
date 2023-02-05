@@ -56,7 +56,7 @@ def usb_point(dev, num, end):
 
 
 def usb_free(dev):
-    usb.util.dispose_resources(dev)    
+    usb.util.dispose_resources(dev)
     for ifn in dev._detached_:
         usb.util.release_interface(dev, ifn)
         try: dev.attach_kernel_driver(ifn)
@@ -66,7 +66,7 @@ def usb_free(dev):
 
 def serial_discover(vid, pid, sid=None):
     found = []
-    if type(sid) == str and len(sid) == 0: sid = None        
+    if type(sid) == str and len(sid) == 0: sid = None
     try:
         ports = serial.tools.list_ports.comports()
         for port in sorted(ports):

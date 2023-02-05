@@ -36,7 +36,7 @@ url = 'ftdi://{:#x}:{:#x}/{}'
 if __name__ == "__main__":
 
     found = False
-    
+
     all_devices = usb.core.find(find_all=True)
     tags = ('DEVICE ID', )
     #tags = ('DEVICE ID', 'CONFIGURATION', 'INTERFACE', 'ENDPOINT')
@@ -46,30 +46,30 @@ if __name__ == "__main__":
                 if any(tag in line for tag in tags):
                     print(line.replace('=', ''), file=sys.stderr)
                     found = True
-        
+
     if found:
-    
+
         try:
-            
+
             print('FTDI:C,GPIO -- FullReset()', file=sys.stderr)
-               
+
             ftdi3 = gpio.GpioController()
             mask3 = 0b11110000  # hi=output, lo=input (GPIO on D4 to D7)
             ftdi3.configure(url=url.format(VID, PID, 3), direction=mask3)
-                
-            ftdi3.write(int('35', 16)) 
+
+            ftdi3.write(int('35', 16))
             time.sleep(0.25)
-            
+
             ftdi3.write(int('35', 16))   # CDBUS6 (pin 45) -> RESET MCU low
             time.sleep(0.25)
-            
-            ftdi3.write(int('75', 16))  # CDBUS6 (pin 45) -> RESET MCU high    
+
+            ftdi3.write(int('75', 16))  # CDBUS6 (pin 45) -> RESET MCU high
             time.sleep(0.25)
-            
+
         except Exception as e:
             print(e, file=sys.stderr)
             sys.exit(1)
-    
+
     else:
         print('FTDI chip has not been found.', file=sys.stderr)
         sys.exit(1)
