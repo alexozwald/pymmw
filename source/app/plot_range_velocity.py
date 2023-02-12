@@ -30,7 +30,7 @@ except ImportError as e:
 
 # ------------------------------------------------
 
-def update(data, history=40):
+def update(data, history=20):
     if 'detected_points' not in data:
         return
 
