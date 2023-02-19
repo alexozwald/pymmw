@@ -42,7 +42,8 @@ class Logger:
 
         data = json.dumps(data)
         data_fmt = str(data + ',' + '\n')
+        self.log_out.write(data_fmt)
 
         print(data_fmt) if self.verbose else None
-        self.log_out.write(data_fmt)
+
         self.idx += 1
