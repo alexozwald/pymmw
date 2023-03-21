@@ -7,10 +7,6 @@
 # This file is licensed under the terms of the MIT license.
 #
 
-#
-# goto pymmw
-#
-
 import os
 import sys
 import glob
