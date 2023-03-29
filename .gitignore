@@ -1,7 +1,7 @@
 ## Project Specific ##
 logs
-gif
-mp4
+*.gif
+*.mp4
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

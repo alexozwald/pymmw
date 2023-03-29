@@ -1,10 +1,13 @@
+hdbscan
 matplotlib
 numpy
+orjson
+pandas
 pyftdi
 pyserial
 pyusb
-scipy
-tiflash
+pyzmq
 requests
-pandas
-hdbscan
+scipy
+seaborn
+tiflash
