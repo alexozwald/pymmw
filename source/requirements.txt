@@ -9,5 +9,4 @@ pyusb
 pyzmq
 requests
 scipy
-seaborn
 tiflash
