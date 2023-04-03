@@ -1,0 +1,36 @@
+pip
+setuptools
+wheel
+ipykernel
+notebook
+ipywidgets
+
+hdbscan
+json5
+matplotlib
+mpld3
+numpy
+orjson
+pandas
+plotly
+pyarrow
+pyftdi
+pyserial
+pyzmq
+scipy
+seaborn
+tiflash
+
+tensorboard
+
+tensorflow
+torch 
+torch-points3d
+
+# MAYAVI DIRECTIONS
+# pip install PyQt5 --config-settings --confirm-license= --verbose
+# pip install 
+# pip install mayavi
+# jupyter nbextension install --py mayavi --user
+# jupyter nbextension enable mayavi --user --py
+# 

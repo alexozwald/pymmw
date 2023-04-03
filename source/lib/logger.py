@@ -42,7 +42,7 @@ class Logger:
         # Send log_str via ZeroMQ
         #self.zmq_publisher.send(log_str)
 
-        if self.verbose: # or self.frame % 60 == 0
+        if self.verbose: # or self.frame % 60 == 0:
             print(log_str.decode('utf-8'))
             #print(f"dF => {dataFrame}", file=stderr, flush=True)
 

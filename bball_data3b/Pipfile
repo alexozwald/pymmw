@@ -1,0 +1,36 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+ipykernel = "*"
+notebook = "*"
+ipywidgets = "*"
+hdbscan = "*"
+json5 = "*"
+matplotlib = "*"
+mpld3 = "*"
+numpy = "*"
+orjson = "*"
+pandas = "*"
+plotly = "*"
+pyarrow = "*"
+pyftdi = "*"
+pyserial = "*"
+pyzmq = "*"
+scipy = "*"
+seaborn = "*"
+tiflash = "*"
+torch = "*"
+tensorflow-macos = "*"
+tensorflow-metal = "*"
+ipyevents = "*"
+datashader = "*"
+holoviews = "*"
+bokeh = "*"
+
+[dev-packages]
+
+[requires]
+python_version = "3.10"

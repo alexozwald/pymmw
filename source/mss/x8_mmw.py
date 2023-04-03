@@ -33,7 +33,7 @@ _meta_ = {
     'app': {
         'logMagRange':         ('plot_range_profile', ),  # 'capture_range_profile',),
         'noiseProfile':        ('plot_range_profile', ),
-        'detectedObjects':     ('plot_range_velocity', ),  # 'simple_cfar_clustering',),
+        'detectedObjects':     (None, ),  #'plot_range_velocity', 'simple_cfar_clustering',),
         'rangeAzimuthHeatMap': ('plot_range_azimuth_heat_map', ),
         'rangeDopplerHeatMap': ('plot_range_doppler_heat_map', )
     }
