@@ -22,13 +22,8 @@ pyzmq = "*"
 scipy = "*"
 seaborn = "*"
 tiflash = "*"
-torch = "*"
-tensorflow-macos = "*"
-tensorflow-metal = "*"
 ipyevents = "*"
-datashader = "*"
-holoviews = "*"
-bokeh = "*"
+ipympl = "*"
 
 [dev-packages]
 

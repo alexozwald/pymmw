@@ -24,10 +24,10 @@ class Logger:
         self.log_out = open(self.log_file_path, 'w+b', buffering=1)
 
         # ZeroMQ setup
-        #self.zmq_context = zmq.Context()
-        #self.zmq_publisher = self.zmq_context.socket(zmq.PUB)
-        #self.zmq_port = "5555"  # Choose an appropriate port number
-        #self.zmq_publisher.bind(f"tcp://*:{self.zmq_port}")
+        self.zmq_context = zmq.Context()
+        self.zmq_publisher = self.zmq_context.socket(zmq.PUB)
+        self.zmq_port = "5555"  # Choose an appropriate port number
+        self.zmq_publisher.bind(f"tcp://*:{self.zmq_port}")
 
 
     def message(self, dataFrame: dict):
@@ -40,7 +40,7 @@ class Logger:
         self.log_out.write(log_str)
 
         # Send log_str via ZeroMQ
-        #self.zmq_publisher.send(log_str)
+        self.zmq_publisher.send(log_str)
 
         if self.verbose: # or self.frame % 60 == 0:
             print(log_str.decode('utf-8'))

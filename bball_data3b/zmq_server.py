@@ -24,27 +24,9 @@ class zmq_listener():
                         time.sleep(1 / self.msg_per_second)
 
 if __name__ == "__main__":
-    FILE_LIST = ["./data/2023.03.21_jc/log1.json", "./data/2023.03.21_jc/log2.json", "./data/2023.03.21_jc/log3.json", "./data/2023.03.21_jc/log4.json"]
+    #FILE_LIST = ["./data/2023.03.21_jc/log1.json", "./data/2023.03.21_jc/log2.json", "./data/2023.03.21_jc/log3.json", "./data/2023.03.21_jc/log4.json"]
+    FILE_LIST = ["/Users/alex/Documents/neu/linuxmnt/_pymmw/bball_data3b/data/2023.03.21_jc/log2.json"]
     zmq_srvr = zmq_listener(MSG_PER_SECOND=10)
     zmq_srvr.run(FILE_LIST)
     
     exit()
-
-'''
-LOCAL_URL = "tcp://*:15667"
-MSG_PER_SECOND = 20
-
-context = zmq.Context()
-socket = context.socket(zmq.PUB)
-socket.bind(LOCAL_URL)
-
-file_list = ["./data_2023.03.21/log1.json", "./data_2023.03.21/log2.json", "./data_2023.03.21/log3.json", "./data_2023.03.21/log4.json"]
-
-while True:
-    for file_path in file_list:
-        with open(file_path, "rb") as f:
-            for line in f.readlines():
-                message = json.loads(line)
-                socket.send_json(message)
-                time.sleep(1 / MSG_PER_SECOND)
-'''
