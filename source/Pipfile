@@ -19,6 +19,7 @@ tiflash = "*"
 ipython = "*"
 pyarrow = "*"
 tabulate = "*"
+click = "*"
 
 [dev-packages]
 

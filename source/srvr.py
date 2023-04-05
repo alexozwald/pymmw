@@ -14,6 +14,7 @@ import argparse
 import warnings
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+import click
 
 
 
@@ -336,8 +337,11 @@ class DataAnalysis:
     def backtrace_initial_vel(self, df: pd.DataFrame) -> int:
         pass
 
-
-def main(mk_plot: bool):
+@click.command()
+@click.option("--plot", is_flag=True, default=True, help="Enable Live 3D plot")
+@click.option("--frame-lag", type=int, default=20, help="Frame lag for the Live 3D plot")
+def main(plot: bool = False, frame_lag: int = 20):
+    mk_plot = plot
 
     zmq_listener = ZmqListener()
     data_analysis = DataAnalysis()
@@ -349,8 +353,8 @@ def main(mk_plot: bool):
     if mk_plot:
         # TIL Matplotlib is not thread safe...
         # https://stackoverflow.com/questions/34764535/why-cant-matplotlib-plot-in-a-different-thread
-        plot_executor = DebugThreadPoolExecutor(max_workers=1, non_blocking=False)
-        plotter = Plot3Dv()
+        #plot_executor = DebugThreadPoolExecutor(max_workers=1, non_blocking=False)
+        plotter = Plot3Dv(frame_lag=frame_lag)
 
     analysis_future = None
     handle_future = None
@@ -372,8 +376,9 @@ def main(mk_plot: bool):
         handle_executor.raise_exception()
 
         if mk_plot:
-            plot_executor.raise_exception()
-            plot_executor.submit(plotter.add_pts, df_line)
+            #plot_executor.raise_exception()
+            #plot_executor.submit(plotter.add_pts, df_line)
+            plotter.add_pts(df_line)
 
         # If analysis_future has a response, submit handle_detections task
         if analysis_future and analysis_future.done():
@@ -387,11 +392,23 @@ def main(mk_plot: bool):
 
 
 if __name__ == "__main__":
+    main()
+    #exit()
+
+    '''
     parser = argparse.ArgumentParser(description="Data Processing Module for IWR6843ISK Baseball Detection")
     parser.add_argument("--plot", action="store_true", help="Enable Live 3D plot")
+    parser.add_argument("--frame-lag", action="store_true", help="Enable Live 3D plot")
     args = parser.parse_args()
     
     if args.plot:
-        main(mk_plot=True)
+        if args.frame_lag:
+            main(mk_plot=True, frame_lag=args.frame_lag)
+        else:
+            main(mk_plot=True)
     else:
-        main(mk_plot=False)
+        if args.frame_lag:
+            main(mk_plot=False, frame_lag=args.frame_lag)
+        else:
+            main(mk_plot=False)
+    '''
