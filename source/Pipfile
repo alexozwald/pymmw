@@ -8,7 +8,7 @@ hdbscan = "*"
 matplotlib = "*"
 numpy = "*"
 orjson = "*"
-pandas = "*"
+pandas = ">=2.0.0"
 pyftdi = "*"
 pyserial = "*"
 pyusb = "*"
@@ -16,6 +16,9 @@ pyzmq = "*"
 requests = "*"
 scipy = "*"
 tiflash = "*"
+ipython = "*"
+pyarrow = "*"
+tabulate = "*"
 
 [dev-packages]
 

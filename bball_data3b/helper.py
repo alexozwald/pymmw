@@ -177,7 +177,8 @@ def viz_slider(df: pd.DataFrame, ANIM_COL: str = 'stack', COLOR1_COL: str = 'v',
                   'z': (df['z'].min(), df['z'].max())}
 
     def update(val, ax, color_col, color_title):
-        ax.clear()
+        #ax.clear()
+        ax.cla()
         frame_data = df.loc[df[ANIM_COL] == anim_frames[val]]
 
         x = frame_data['x'].values
@@ -262,9 +263,9 @@ def viz_slider(df: pd.DataFrame, ANIM_COL: str = 'stack', COLOR1_COL: str = 'v',
     # Display the plot
     plt.show()
 
+repo_dir = get_repo_dir()
 
 if __name__ == "__main__":
-    repo_dir = get_repo_dir()
 
     # load data
     #df_lab_lobs = pd.read_csv('./data/03.30-lab_lobs.csv', engine='pyarrow')
