@@ -4,7 +4,7 @@ import os
 from pandas import Timestamp, DataFrame
 import orjson
 from sys import stderr
-# import zmq as zmq
+import zmq as zmq
 
 
 class Logger:
@@ -21,19 +21,32 @@ class Logger:
             os.makedirs(log_dir)
         self.log_file_path = os.path.join(log_dir, fileName)
         # generate log file & line-buffer
-        self.log_out = open(self.log_file_path, 'w+b', buffering=1)
+        self.log_out = open(self.log_file_path, 'w+b') # buffering=1
 
         # ZeroMQ setup
-        self.zmq_context = zmq.Context()
-        self.zmq_publisher = self.zmq_context.socket(zmq.PUB)
-        self.zmq_port = "5555"  # Choose an appropriate port number
-        self.zmq_publisher.bind(f"tcp://*:{self.zmq_port}")
+        try:
+            self.zmq_context = zmq.Context()
+            self.zmq_publisher = self.zmq_context.socket(zmq.PUB)
+            print("zmq.PUB == PROBLEM", flush=True)
+            self.zmq_port = "5555"  # Choose an appropriate port number
+            self.zmq_publisher.bind(f"tcp://*:{self.zmq_port}")
+            print("zmq.PUB == PROBLEM2", flush=True)
+        except Exception as e:
+            from traceback import format_exc
+            print(format_exc(e), flush=True)
 
 
     def message(self, dataFrame: dict):
         # NEW FILE
         self.time = int(Timestamp.now().to_datetime64().astype(int) / 10**6)
-        df = DataFrame.from_dict(dataFrame['detected_points'], orient='index').reset_index(drop=True) #.assign(frame=self.frame, ts=self.time)
+
+        # check if there are points to record / send => SKIP OR SWIM
+        if not dataFrame['detected_points']:
+            #return (self.frame := self.frame + 1)
+            self.frame += 1
+            return
+        else:
+            df = DataFrame.from_dict(dataFrame['detected_points'], orient='index').reset_index(drop=True) #.assign(frame=self.frame, ts=self.time)
 
         log_dict = { 'ts': self.time, 'frame': self.frame, 'xyzv': df[['x','y','z','v']].to_numpy().tolist() }
         log_str = orjson.dumps(log_dict) + b'\n'
@@ -42,7 +55,7 @@ class Logger:
         # Send log_str via ZeroMQ
         self.zmq_publisher.send(log_str)
 
-        if self.verbose: # or self.frame % 60 == 0:
+        if self.verbose or True: # or self.frame % 60 == 0:
             print(log_str.decode('utf-8'))
             #print(f"dF => {dataFrame}", file=stderr, flush=True)
 

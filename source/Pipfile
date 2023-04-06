@@ -20,6 +20,7 @@ ipython = "*"
 pyarrow = "*"
 tabulate = "*"
 click = "*"
+seaborn = "*"
 
 [dev-packages]
 

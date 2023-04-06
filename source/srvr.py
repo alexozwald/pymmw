@@ -1,34 +1,41 @@
-import zmq
+#!/usr/bin/env python3
+import threading
+
+#from collections import deque
+import warnings
+from concurrent.futures import ThreadPoolExecutor
+from traceback import format_exc
+
+import click
+import hdbscan
+import matplotlib.pyplot as plt
 import orjson
 import pandas as pd
-import hdbscan
-#import time
-import threading
-from numpy import sqrt
-from concurrent.futures import ThreadPoolExecutor
-#from warnings import filterwarnings
-#from sys import stderr as sys_stderr
 import requests
-from collections import deque
-import argparse
-import warnings
-import matplotlib.pyplot as plt
-import matplotlib as mpl
-import click
+import zmq
+from seaborn import diverging_palette, set_theme #cubehelix_palette
 
 
+def tprint(*args, **kwargs):
+    """ Wrapper for printing with threads """
+    print(*args, flush=True, **kwargs)
 
 class Plot3Dv:
-    def __init__(self, FRAME_LAG: int = 20):
-        self.bounds = {'x': [-5, 25],
-                       'y': [-5, 25],
-                       'z': [-5, 15]}
-        init_v_bounds = {'vmin': -40, 'vmax': 40}
-        view_angle_3d = dict(elev=12, azim=-135, roll=0)
-        
-        self.df = pd.DataFrame()
-        self.FRAME_LAG = FRAME_LAG
+    """
+    Refs for improvement:
+    [1] [Blitting Class sans-animation (Article)](https://coderslegacy.com/matplotlib-blitting-tutorial/)
+    [2] [Matplotlibs official adv. example blitting class](https://matplotlib.org/stable/tutorials/advanced/blitting.html)
+    """
 
+    def __init__(self, frame_lag: int = 20):
+        self.bounds = dict(x=[-2,25], y=[-2,25], z=[-5,15])
+        init_v_bounds = dict(vmin=-40, vmax=40)
+        view_angle_3d = dict(elev=14, azim=-135, roll=0)
+
+        self.df = pd.DataFrame()
+        self.frame_lag = frame_lag
+
+        set_theme(style='darkgrid', context='notebook')
         self.fig = plt.figure()
         self.ax = self.fig.add_subplot(111, projection='3d')
         self.ax.view_init(**view_angle_3d)
@@ -40,50 +47,39 @@ class Plot3Dv:
         self.ax.set_zlim(*self.bounds['z'])
 
         # pre-generate colorbar
-        self.sm = plt.cm.ScalarMappable(cmap='Purples', norm=plt.Normalize(**init_v_bounds))
-        #self.sm.set_over('red')    # set past-limits colors
-        #self.sm.set_under('black') # set past-limits colors
+        #self.cmap = cubehelix_palette(as_cmap=True)
+        self.cmap = diverging_palette(h_neg=150, h_pos=276, s=73, l=30, sep=1, center='light', as_cmap=True)
+        self.sm = plt.cm.ScalarMappable(cmap=self.cmap, norm=plt.Normalize(**init_v_bounds))
         self.sm.set_array([])
         self.cbar = self.fig.colorbar(self.sm, ax=self.ax, pad=0.1)
-        self.cbar.ax.set_title(f"Velocity (m/s)")
+        self.cbar.ax.set_title("Velocity (m/s)")
 
-        # launch gui
-        #plt.show()
-        # Launch gui
-        plt.ion()  # Turn on interactive mode
-        plt.show(block=False)  # Show plot non-blocking
-
+        # Launch Interactive Mode & GUI (non-blocking ig)
+        plt.ion()
+        plt.show(block=False)
 
     def check_max_bounds(self, df_new: pd.DataFrame):
-        diff = False
-        df_new_x_min = df_new['x'].min()
-        df_new_x_max = df_new['x'].max()
-        df_new_y_min = df_new['y'].min()
-        df_new_y_max = df_new['y'].max()
-        df_new_z_min = df_new['z'].min()
-        df_new_z_max = df_new['z'].max()
-        self.bounds['x'][0], diff = (df_new_x_min, True) if (df_new_x_min < self.bounds['x'][0]) else (self.bounds['x'][0], False)
-        self.bounds['x'][1], diff = (df_new_x_max, True) if (df_new_x_max > self.bounds['x'][1]) else (self.bounds['x'][1], False)
-        self.bounds['y'][0], diff = (df_new_y_min, True) if (df_new_y_min < self.bounds['y'][0]) else (self.bounds['y'][0], False)
-        self.bounds['y'][1], diff = (df_new_y_max, True) if (df_new_y_max > self.bounds['y'][1]) else (self.bounds['y'][1], False)
-        self.bounds['z'][0], diff = (df_new_z_min, True) if (df_new_z_min < self.bounds['z'][0]) else (self.bounds['z'][0], False)
-        self.bounds['z'][1], diff = (df_new_z_max, True) if (df_new_z_max > self.bounds['z'][1]) else (self.bounds['z'][1], False)
-        if diff:
-            return True
-        else:
-            return False
+        """ Update axis bounds from defaults if needed """
+        bounds_updated = False
+
+        for axis in ['x', 'y', 'z']:
+            min_val, max_val = df_new[axis].agg(['min', 'max'])
+            old_min, old_max = self.bounds[axis]
+
+            if (new_bounds := (min(min_val, old_min), max(max_val, old_max))) != (old_min, old_max):
+                self.bounds[axis] = new_bounds
+                bounds_updated = True
+
+        return bounds_updated
 
     def add_pts(self, df_new: pd.DataFrame):
-        # <insert code here to add points to the 3D scatter plot using df_line>
-        #self.ax.scatter(...)
-
-        #self.ax.clear()
-        #self.ax.remove()
-        #self.ax.clear()
+        """ Add points from current df-reading to 3D Scatter """
+        # clear axis of data
         self.ax.cla()
+        #self.ax.lines.clear()
 
         # update & prune points
-        fr_cutoff = df_new['frame'].max() - self.FRAME_LAG
+        fr_cutoff = df_new['frame'].max() - self.frame_lag
         self.df = pd.concat([self.df, df_new], ignore_index=True)
         self.df = self.df.loc[self.df['frame'] >= fr_cutoff]
 
@@ -92,47 +88,43 @@ class Plot3Dv:
         min_frame, max_frame = self.df['frame'].min(), self.df['frame'].max()
         normalized_opacity = self.df['frame'].sub(min_frame).div(max_frame - min_frame).mul(max_opacity - min_opacity).add(min_opacity).fillna(0.3)
 
-        if self.check_max_bounds(df_new=df_new):
-            self.ax.set_xlim(*self.bounds['x'])
-            self.ax.set_ylim(*self.bounds['y'])
-            self.ax.set_zlim(*self.bounds['z'])
-
+        # compute contents of new new scatter plot
         x = self.df['x'].values
         y = self.df['y'].values
         z = self.df['z'].values
         v = self.df['v'].values
+        self.ax.scatter(x, y, z, c=v, cmap='Purples', s=20, marker='o', edgecolor='k', linewidths=0.6, alpha=normalized_opacity)
 
-        sc = self.ax.scatter(x, y, z, c=v, cmap='Purples', s=20, marker='o', edgecolor='k', linewidths=0.6, alpha=normalized_opacity)
-        #ax.set_xlabel('X')
-        #ax.set_ylabel('Y')
-        #ax.set_zlabel('Z')
-
-        # Set title and subtitle
+        # Set limits, axes, and title+subtitle
+        self.ax.set(xlim=self.bounds['x'], ylim=self.bounds['y'], zlim=self.bounds['z'], xlabel='X', ylabel='Y', zlabel='Z')
         time_str = pd.to_datetime(df_new['ts'].max(), unit='ms').strftime('%X.%f')[:-3]
         self.ax.set_title(f"Velocity Plot\nTime: {time_str} (fr: {df_new['frame'].max()})")
 
+        # Write changes onto gui
         plt.draw()
-        plt.pause(0.01)
-
+        plt.pause(0.001)
+        #self.fig.canvas.flush_events()
 
 class DebugThreadPoolExecutor(ThreadPoolExecutor):
-    def __init__(self, *args, non_blocking: bool, **kwargs):
+    """ Wrapper for ThreadPoolExecutor that delivers Warnings & Exceptions from Threads """
+
+    def __init__(self, *args, non_blocking: bool, verbose: bool, **kwargs):
         super().__init__(*args, **kwargs)
-        self._exception = None
         self.non_blocking = non_blocking
+        self.verbose = verbose
+        self._exception = None
+        self._warnings = None
 
     def submit(self, fn, *args, **kwargs):
         def wrapped_fn(*args, **kwargs):
             with warnings.catch_warnings(record=True) as captured_warnings:
-                warnings.simplefilter("always")
+                warnings.simplefilter('always')
                 try:
                     result = fn(*args, **kwargs)
                 except Exception as e:
                     self._exception = e
                 else:
-                    # Log captured warnings
-                    for w in captured_warnings:
-                        print(f"*** Warning: {w.message} ***", )
+                    self._warnings = captured_warnings
                     return result
         return super().submit(wrapped_fn, *args, **kwargs)
 
@@ -140,20 +132,26 @@ class DebugThreadPoolExecutor(ThreadPoolExecutor):
         if self._exception:
             if self.non_blocking:
                 # Print the exception without ending the program
-                print(f"Exception occurred: {self._exception}")
+                tprint(f"Exception occurred: '{self._exception.message}'...\n'''\n{format_exc(self._exception)}\n''' => Exception Done.")
             else:
                 # Raise the exception and end the program
                 raise self._exception
-
+        elif self._warnings:
+            if self.verbose:
+                [tprint(w) for w in pd.Series([f"WARNING :: '{_w.message}'" for _w in self._warnings]).unique()]
+            self._warnings = None
 
 class ZmqListener:
-    def __init__(self, port="5555"):
+    """ Listener class for ZMQ Port """
+
+    def __init__(self, port="5555", verbose: bool = False):
         self.port = port
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.SUB)
         self.socket.connect(f"tcp://localhost:{self.port}")
         self.socket.setsockopt_string(zmq.SUBSCRIBE, '')
-        
+
+        self.verbose = verbose
         self.buffer = pd.DataFrame()
 
     def listen(self) -> pd.DataFrame:
@@ -162,67 +160,83 @@ class ZmqListener:
             msg_dict = orjson.loads(message)
             df_line = pd.DataFrame(msg_dict['xyzv'], columns=['x', 'y', 'z', 'v']).assign(ts=msg_dict['ts'], frame=msg_dict['frame'])
             # currently disabling pyarrow backend bc of weird error
-            #df_line.convert_dtypes(dtype_backend='pyarrow', inplace=True)
-            yield df_line #msg_dict
+            # <EOL>.convert_dtypes(dtype_backend='pyarrow', inplace=True)
+            yield df_line
 
     def append_to_buffer(self, df_line: pd.DataFrame):
         self.buffer = pd.concat([self.buffer, df_line], ignore_index=True)
 
-
 class DataAnalysis:
-    def __init__(self):
+    """ Class containing all BBall Analysis Funcs & Methods """
+
+    def __init__(self,
+                 internet_input: bool,
+                 mph_input: float,
+                 outlier_score_input: float,
+                 normalize_input: bool,
+                 alpha_score_input: float,
+                 minimum_cluster_size_input: int,
+                 fr_stack_size_input: int,
+                 min_fr_b2b_input: int,
+                 verbose: bool):
         self.df = pd.DataFrame()
         self.time = pd.Timestamp.now()
         self.URL = "https://capstonebackend.herokuapp.com/api/playerData"
         self.HEADERS = { 'Content-type': 'application/json', 'Accept': 'text/plain' }
-        self.sent_bbals = pd.Series(dtype='Int64', name='ts')
+        self.sent_bbals = pd.Series(name='ts')
         self.tmp_detections = pd.DataFrame()
-        
+
         # detection algo parameters
-        self.STACK_SIZE = 20
-        self.BBALL_FRAME_SCATTER_LEN = 5  # lowkey this is rlly MIN_FR_BETWEEN_BBALLS
-        self.MPH = 17
-        self.OUT_SCORE = 0.75
-        self.MIN_CLSTR = 3
-        self.ALPHA = 1.0
+        self.STACK_SIZE = fr_stack_size_input # 20 (tested)
+        self.MIN_FR_B2B = min_fr_b2b_input # 5 (tested); formerly: BBALL_FRAME_SCATTER_LEN
+        self.MPH = mph_input # 17 mph (tested)
+        self.OUT_SCORE = outlier_score_input # 0.75 (tested)
+        self.MIN_CLSTR = minimum_cluster_size_input # 3 (tested)
+        self.ALPHA = alpha_score_input # 1.0 (tested)
+        self.NORM = normalize_input # false (tested)
 
         self._thread_lock = threading.Lock()
+        self.verbose = verbose
+        self.internet = internet_input
 
 
     def handle_detections(self, detects: pd.DataFrame, curr_df: pd.DataFrame):
-        """ DESCRIPTION """
+        """ Process & Narrow BBall Detections to one MSG per-ball """
 
         # return if no potential detections
         if len(detects) == 0:
             return
-        
-        fr_cutoff = curr_df['frame'].min() - self.BBALL_FRAME_SCATTER_LEN
-        min_fr_curr_df = curr_df['frame'].min()
 
-        # detect potential temporal clumps from one hit -- wait until BBALL_FRAME_SCATTER_LEN cleared
-        in_betweens = detects.loc[ (detects['frame'] <= fr_cutoff) & (detects['frame'] < min_fr_curr_df) ]
-        if len(in_betweens) > 0:
+        # detect potential temporal clumps from one hit -- wait until MIN_FR_B2B cleared
+        fr_cutoff = curr_df['frame'].min() - self.MIN_FR_B2B
+        in_betweens_or_current = detects.loc[ detects['frame'] >= fr_cutoff ]
+        if len(in_betweens_or_current) > 0:
             return
-
+        
         # split detects past frame cutoff
         detects = detects.loc[ detects['frame'] < fr_cutoff ]
 
         # calc distance for al potential bballs
-        detects['dist'] = sqrt(detects['x'].pow(2) + detects['y'].pow(2) + detects['z'].pow(2))
+        detects['dist'] = (detects['x'].pow(2) + detects['y'].pow(2) + detects['z'].pow(2)).pow(0.5)
 
         # pick ball@max_v using closest point, fallback to max velocity (fallback unlikely)
         bball_v = detects.loc[detects['dist'] == detects['dist'].max()]
+
+        # DEBUG:  PROBLEM LINE BC ITS EMPTY.
         bball_v = bball_v.loc[bball_v['v'] == bball_v['v'].max()].iloc[0] # iloc[0] => convert to series
 
-        # send point to server
-        #self.send_to_db(bball_v)
-        print(f"=> Sending bball to server!  v = {bball_v['v']:.3f} m/s  @  ({bball_v['x']:.2f}m,{bball_v['y']:.2f}m,{bball_v['z']:.2f}m)")
+        # send point to server & log (always)
+        from numpy import sqrt
+        detail_str = f"v={bball_v['v']:.3f} m/s @ d={sqrt(bball_v['x']**2+bball_v['y']**2+bball_v['z']**2):<2.2f}m & ර={bball_v['outlier']:.3f}० @ ({bball_v['x']:.1f} {bball_v['y']:.1f} {bball_v['z']:.1f})m {len(detects):>2}=>1 pts"
+        if self.internet and bball_v['ts'] not in self.sent_bbals.values:
+            self.send_to_db(bball_v)
+            tprint(f"=({self.time})==> Posting bball to DB! {detail_str}")
+        else:
+            tprint(f"=({self.time})==> BBall Found! {detail_str}")
 
         # remove eval'd data from tmp_detections (thread-safe)
         with self._thread_lock:
             self.tmp_detections = self.tmp_detections.loc[ ~ self.tmp_detections['ts'].isin(detects['ts']) ]
-
-        return
 
 
     def send_to_db(self, bball: pd.Series):
@@ -234,156 +248,182 @@ class DataAnalysis:
             requests.post(url=self.URL, headers=self.HEADERS, data=data)
             # track what frames are sent
             self.sent_bbals = pd.concat([self.sent_bbals, pd.Series(bball['ts'])], ignore_index=True)
-            print(f"{self.time} | BBall sent. v={bball['v']}")
+            tprint(f"{self.time} | BBall sent. v={bball['v']}")
         except Exception as e:
-            err_msg = f"{self.time} | FAILED TO POST -- err={e}({e.args})"
-            if len(bball) > 0:      err_msg += f" -- bball={bball.to_dict()}"
-            else:                   err_msg += f" -- bball=BBALL_NOT_FOUND"
-            print(err_msg, flush=True)
+            tprint(f"{self.time} | FAILED TO POST -- bball={bball.to_dict()} -- err=...\n{format_exc(e)}")
+
+
+    def _get_df_minmax(self, df: pd.DataFrame, col: str):
+        """ Logging-aid to safely extract values for min/max in sticky situations """
+        try:
+            df_min, df_max = df[col].min(), df[col].max()
+        except Exception:
+            df_min, df_max = (0,0)
+        return df_min, df_max
 
 
     def exec_df_get_bball(self, buffer_data: pd.DataFrame):
         """ End-to-end func for BBall Detection, Data Processing, Model, and DB Communication """
 
-        #print(f"=> STARTING `exec_df_get_bball` !!!", flush=True)
-        #print(buffer_data.to_markdown(), flush=True)
-
-        # logging pre-reqs
+        if self.verbose: # verbose logging pre-reqs for later in func
+            (buffer_max, df_og_max) = (buffer_data['frame'].max(), self.df['frame'].max())
         self.time = pd.Timestamp.now().strftime('%X')
-        buffer_min, buffer_max = (buffer_data['frame'].min(), buffer_data['frame'].max())
-        try:
-            df_og_min, df_og_max = (self.df['frame'].min(), self.df['frame'].max())
-        except:
-            df_og_min, df_og_max = (0,0)
 
-        # scrub any negative velocities from buffer.  import buffer.  prune stack.
+        # Scrub any negative velocities from buffer (+ prevent empty-df errors)
+        # Early Exit: thread safety / return copies of relevant dataframes
         buffer_data = buffer_data.loc[buffer_data['v'] >= 0]
+        if len(buffer_data) == 0:
+            with self._thread_lock:
+                return (self.tmp_detections.copy(deep=True), self.df.copy(deep=True))
+
+        # import pre-processed buffer & prune stack.
         self.df = pd.concat([self.df, buffer_data])
         self.df = self.df.loc[self.df['frame'] >= (buffer_data['frame'].max() - self.STACK_SIZE)]
-        
-        #print(f"{self.time} | len(self.df) = {len(self.df)}", flush=True)
 
-        # log frame-delay and relative processing time of `exec_df_get_bball`
-        df_max, df_min = (self.df['frame'].min(), self.df['frame'].max())
-        skipped_frames = -(df_min - df_og_max)
-        try:
-            skipped_frames = 0 if skipped_frames < 0 else skipped_frames
-        except Exception as e:
-            print(f"==> SKIPPED_FRAMES ERROR -- Current DF...\n{self.df.to_markdown()}")
-            raise e
-        frame_jump = buffer_max - df_og_max
-        curr_fr_len = df_max - df_min
-        len_curr_stack = len(self.df)
-        print(f"{self.time} | □={buffer_max:<6} - □ Range={curr_fr_len} - □ skipped={skipped_frames:>2} - □ jumped={frame_jump:>2} - #pts={len_curr_stack}", flush=True)
-        #print(self.df.to_markdown(), flush=True)
+        if self.verbose:
+            df_min, df_max = self.df['buffer'].max(), self.df['buffer'].min()
+            buffer_max, curr_fr_len, frame_jump, len_curr_stack, skipped_frames = (
+                buffer_max, (df_max - df_min), (buffer_max - df_og_max), len(self.df),
+                (0 if pd.isna(skf_diff := df_min - df_og_max) else max(0, skf_diff)) )
+            tprint(f"{self.time} | □={buffer_max:<6} - □ Range={curr_fr_len} - □ skipped={skipped_frames:>2} - □ jumped={frame_jump:>2} - #pts={len_curr_stack}")
 
-        #def get_ball(self, df, MPH, OUT_SCORE, MIN_CLSTR):
-        #get_ball(df, 17, 0.75, 3)
-
-        df = self.do_hdbscan(self.df, self.MIN_CLSTR, self.ALPHA, norm=False)
+        df = self.do_hdbscan(self.df, self.MIN_CLSTR, self.ALPHA, norm=self.NORM)
 
         # filter bballs
-        df = df.loc[(df['v'] >= self.MPH) & (df['outlier'] >= self.OUT_SCORE)]
-        #bballs = bballs.loc[bballs.loc[bballs['v'].abs() >= MPH][['frame','stack']].drop_duplicates()['frame'].drop_duplicates().index]
-        #bballs = bballs.loc[bballs.loc[bballs['v'].abs() >= MPH][['frame','stack']].drop_duplicates()['frame'].drop_duplicates().index]
+        df = df.loc[(df['v'] >= self.MPH) & (df['outlier'] >= self.OUT_SCORE)].drop_duplicates()
 
         if len(df) > 0:
             # MAYBE TAKE OUT THIS LINE -- logging for it instead.
             df = df.loc[(df['v'] == df['v'].max())]
-            bball = df.iloc[0:1]
-            if len(df) > 1:
-                pass #print(f"BBall DF has multiple rows.  Using row of max v (). DF:\n{df}", flush=True)
-            else:
-                ...
+            bball = df.iloc[0:]
+            #if len(df) > 1:  tprint(f"--- AFTER HDBSCAN. LEN OF DF == {len(df)} --- DF=...\n{df}")
             with self._thread_lock:
                 self.tmp_detections = pd.concat([self.tmp_detections, bball], ignore_index=True).drop_duplicates()
-                #print(f"NO 'INDEX' ?? cols={self.tmp_detections.columns.values}", flush=True)
-                #.drop('index', axis=1).drop_duplicates()
-            #print(f"=> FOUND BBALL! v={bball['v'].iloc[0]}")
+
+        ## DEBUG:  ADD DELAY
+        #sleep(random() % 0.3)
 
         # thread safety / return copies of relevant dataframes
         with self._thread_lock:
-            return_detects_and_df = (self.tmp_detections.copy(deep=True), self.df.copy(deep=True))
-        return return_detects_and_df
+            return (self.tmp_detections.copy(deep=True), self.df.copy(deep=True))
+        
 
     def do_hdbscan(self, df_in: pd.DataFrame, min_clstrs: int, alpha: float, norm: bool = False) -> pd.DataFrame:
         """ Executes HDBSCAN algorithm returning `outlier` (& optionally `clstr`) column(s). """
-        
+
         # disable warning -- bug in hdbscan
         warnings.filterwarnings('ignore', category=RuntimeWarning)
 
-        df_in = df_in.copy(deep=True)
-        df_out = pd.DataFrame()
-        
-        #df_in['v'] = df_in['v'].abs()
+        # copy-before-write (on slice) safety
+        df = df_in.copy(deep=True)
+        #df['v'] = df['v'].abs() # we filtered out all -v in pre-processing
 
-        # add normalization (done by column per-stack)
+        # add normalization (done by column, formerly per-stack)
         if norm:
-            df_in[['x','y','z','v']] = df_in[['x','y','z','v']].apply(lambda x: (x - x.min()) / (x.max() - x.min())).fillna(0)
-        
-        if len(df_in) >= 4:
+            df[['x','y','z','v']] = df[['x','y','z','v']].apply(lambda x: (x - x.min()) / (x.max() - x.min())).fillna(0)
+
+        if len(df) >= 4:
             scan = hdbscan.HDBSCAN(min_cluster_size=min_clstrs, algorithm='best', alpha=alpha, metric='euclidean')
-            model = scan.fit(df_in[['x','y','z','v']])
-            df_in = df_in.assign(outlier=model.outlier_scores_, clstr=model.labels_)
+            model = scan.fit(df[['x','y','z','v']])
+            df = df.assign(outlier=model.outlier_scores_, clstr=model.labels_)
+            df['outlier'].fillna(0, inplace=True)
         else:
-            #print(f"{self.time} | WARN: hdbscan skipped, len too short -- len(df)={len(df_in)}, v_max={df_in['v'].max()}", flush=True)
-            df_in = df_in.assign(outlier=0, clstr=0)
+            df = df.assign(outlier=0, clstr=0)
+            if self.verbose:
+                tprint(f"{self.time} | WARN: hdbscan skipped, len too short -- len(df)={len(df_in)}, v_max={df_in['v'].max()}")
 
-        df_out = pd.concat([df_out, df_in])
+        return df
 
-        df_out['outlier'].fillna(0, inplace=True)
-        return df_out
 
-    def backtrace_initial_vel(self, df: pd.DataFrame) -> int:
+    def backtrace_initial_vel(self, df: pd.DataFrame, centroid: tuple) -> int:
+        """ Expansion to get initial velocity from mid-air location -- **requires detection of batter location** """
         pass
 
-@click.command()
-@click.option("--plot", is_flag=True, default=True, help="Enable Live 3D plot")
-@click.option("--frame-lag", type=int, default=20, help="Frame lag for the Live 3D plot")
-def main(plot: bool = False, frame_lag: int = 20):
-    mk_plot = plot
+@click.command(context_settings=dict(help_option_names=['-h','--help'], max_content_width=90))
+@click.option("-m", "--mph", type=float, default=17, show_default=True, help="Set the minimum cutoff speed (mph) at which outliers are tested to be baseballs")
+@click.option("-o", "--outlier-score", type=click.FloatRange(0.01, 0.99), default=0.75, show_default=True, help="Set the cutoff minimum outllier score to test for baseballs with")
+@click.option("-N", "--normalize", is_flag=True, default=False, show_default=True, help="Flag to normalize the dimensional readings before running HDBSCAN algo!")
+@click.option("-a", "--alpha", type=click.FloatRange(0.01, 0.99), default=1.00, show_default=True, help="Set the cutoff minimum outllier score to test for baseballs with")
+@click.option("-n", "--min-cluster-size", type=int, default=3, show_default=True, help="Set frame lag for the Live 3D plot")
+@click.option("-fSTACK", "--frame-stack-size", type=int, default=20, show_default=True, help="Set the frame stack height of temporal points that will be concat'd")
+@click.option("-fB2B", "--min-frames-ball2ball", type=int, default=5, show_default=True, help="Set the minimum # of frames between baseballs (to separate clusters)")
+@click.option("-p", "--plot/--no-plot", is_flag=True, default=False, show_default=True, help="▲▽ Enable Live 3D Plot △▼")
+@click.option("-fLAG", "--frame-lag", type=int, default=20, show_default=True, help="Set frame lag for the Live 3D plot")
+@click.option("-i", "--internet/--no-internet", is_flag=True, default=False, show_default=True, help="Enable sending actual http.POSTs to the server")#default=True
+@click.option("-v", "--verbose", is_flag=True, default=False, help="Increase Output Verbosity")
+def main(mph: float, outlier_score: float, normalize: bool, alpha: float, min_cluster_size: int, frame_stack_size: int, min_frames_ball2ball: int, plot: bool, frame_lag: int, internet: bool, verbose: bool, **kwargs):
+    """Launch ZMQ-Reader service to parse, analyze, & process . Plot data live in a colored, 3D Scatter plot.
+        
+    \b
+    Requisite Launch Commands: 
+    MacOS:      ./pymmw.py -c /dev/tty.SLAB_USBtoUART -d /dev/tty.SLAB_USBtoUART3
+    Linux:      ./pymmw.py -c /dev/ttyUSB0 -d /dev/ttyUSB1
+    TEST_SRVR:  python REPO_BASE/bball_data3b/zmq_server.py
 
-    zmq_listener = ZmqListener()
-    data_analysis = DataAnalysis()
-    #executor = ThreadPoolExecutor(max_workers=1)
-    # executor = DebugThreadPoolExecutor(max_workers=1)
-    analysis_executor = DebugThreadPoolExecutor(max_workers=1, non_blocking=False)
-    handle_executor = DebugThreadPoolExecutor(max_workers=1, non_blocking=True)
+    \b
+    References:
+    [1] HDBSCAN Parameter Selection - https://hdbscan.readthedocs.io/en/latest/parameter_selection.html
+    [2] TI mmWave Demo - https://dev.ti.com/gallery/view/mmwave/mmWave_Demo_Visualizer/ver/3.6.0/
+    [3] TI mmWave Sensing Estimator - https://dev.ti.com/gallery/view/mmwave/mmWaveSensingEstimator/ver/2.2.0/
 
-    if mk_plot:
-        # TIL Matplotlib is not thread safe...
-        # https://stackoverflow.com/questions/34764535/why-cant-matplotlib-plot-in-a-different-thread
-        #plot_executor = DebugThreadPoolExecutor(max_workers=1, non_blocking=False)
+    \b
+    Tested Config:
+    ./srvr.py  --no-internet --mph 17 --outlier-score 0.75 --alpha 1.0 --min-cluster-size 3 -fB2B 5 -fSTACK 20 --plot -fLAG 20 [-v]
+    
+    """
+    tprint(f"**kwargs = '{kwargs}'")
+    #fr_stack_size
+    #min_fr_b2b
+    #fr_stack_size: int, min_fr_b2b: int,
+    #frame_stack_size=20, min_frames_ball2ball: int  =5
+
+
+    ## detection algo parameters
+    #self - STACK_SIZE = fr_stack_size_input # 20 (tested)
+    #self - MIN_FR_B2B = min_fr_b2b_input # 5 (tested); formerly: BBALL_FRAME_SCATTER_LEN
+    #self - MPH = mph_input # 17 mph (tested)
+    #self - OUT_SCORE = outlier_score_input # 0.75 (tested)
+    #self - MIN_CLSTR = minimum_cluster_size_input # 3 (tested)
+    #self - ALPHA = alpha_score_input # 1.0 (tested)
+    #self - NORM = normalize_input # false (tested)
+
+
+    # generate
+    zmq_listener = ZmqListener(verbose=verbose)
+    data_analysis = DataAnalysis(
+        internet_input=internet,
+        mph_input=mph,
+        outlier_score_input=outlier_score,
+        normalize_input=normalize,
+        alpha_score_input=alpha,
+        minimum_cluster_size_input=min_cluster_size,
+        fr_stack_size_input=frame_stack_size,
+        min_fr_b2b_input=min_frames_ball2ball,
+        verbose=verbose)
+    analysis_executor = DebugThreadPoolExecutor(max_workers=1, non_blocking=False, verbose=verbose)
+    handle_executor = DebugThreadPoolExecutor(max_workers=1, non_blocking=False, verbose=verbose)#non_blocking=True
+    handle_future, analysis_future = None, None
+
+    if plot:
         plotter = Plot3Dv(frame_lag=frame_lag)
 
-    analysis_future = None
-    handle_future = None
-    
-    print("=> Entering loop...")
+    if verbose:
+        print("=> Entering loop...")
 
     for df_line in zmq_listener.listen():
         zmq_listener.append_to_buffer(df_line)
-        #print(f"=> df_line = '{zmq_listener.buffer.to_dict('records')}'")
-        #print(f"{pd.Timestamp.now().strftime('%X')} | frame = {zmq_listener.buffer['frame'].max()}")
-
-        ## Submit exec_df_get_bball task when there's no ongoing analysis
-        #if analysis_future is None or analysis_future.done():
-        #    analysis_future = executor.submit(data_analysis.exec_df_get_bball, zmq_listener.buffer)
-        #    zmq_listener.buffer = pd.DataFrame()
 
         # Raise any exceptions in worker threads
         analysis_executor.raise_exception()
         handle_executor.raise_exception()
 
-        if mk_plot:
-            #plot_executor.raise_exception()
-            #plot_executor.submit(plotter.add_pts, df_line)
+        if plot:
             plotter.add_pts(df_line)
 
         # If analysis_future has a response, submit handle_detections task
         if analysis_future and analysis_future.done():
             input_data_for_handle = analysis_future.result()
-            #handle_future = handle_executor.submit(data_analysis.handle_detections, *input_data_for_handle)
+            handle_executor.submit(data_analysis.handle_detections, *input_data_for_handle)
 
         # Submit exec_df_get_bball task when there's no ongoing analysis
         if analysis_future is None or analysis_future.done():
@@ -393,22 +433,3 @@ def main(plot: bool = False, frame_lag: int = 20):
 
 if __name__ == "__main__":
     main()
-    #exit()
-
-    '''
-    parser = argparse.ArgumentParser(description="Data Processing Module for IWR6843ISK Baseball Detection")
-    parser.add_argument("--plot", action="store_true", help="Enable Live 3D plot")
-    parser.add_argument("--frame-lag", action="store_true", help="Enable Live 3D plot")
-    args = parser.parse_args()
-    
-    if args.plot:
-        if args.frame_lag:
-            main(mk_plot=True, frame_lag=args.frame_lag)
-        else:
-            main(mk_plot=True)
-    else:
-        if args.frame_lag:
-            main(mk_plot=False, frame_lag=args.frame_lag)
-        else:
-            main(mk_plot=False)
-    '''
