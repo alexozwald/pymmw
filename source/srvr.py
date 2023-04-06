@@ -401,7 +401,7 @@ def main(mph: float, outlier_score: float, normalize: bool, alpha: float, min_cl
         min_fr_b2b_input=min_frames_ball2ball,
         verbose=verbose)
     analysis_executor = DebugThreadPoolExecutor(max_workers=1, non_blocking=False, verbose=verbose)
-    handle_executor = DebugThreadPoolExecutor(max_workers=1, non_blocking=False, verbose=verbose)#non_blocking=True
+    handle_executor = DebugThreadPoolExecutor(max_workers=1, non_blocking=True, verbose=verbose)
     handle_future, analysis_future = None, None
 
     if plot:
