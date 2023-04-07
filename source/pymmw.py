@@ -106,7 +106,7 @@ def _read_(prt, dat, timeout=2, handle=None):  # observe control port and call h
 
     except Exception as e:
         print_log(e, sys._getframe())
-        os._exit(1)
+        sys.exit(1)
 
 
 def _input_(prt):  # accept keyboard input and forward to control port
@@ -194,4 +194,4 @@ if __name__ == "__main__":
 
     except Exception as e:
         print_log(e, sys._getframe())
-        os._exit(1)
+        sys.exit(1)
