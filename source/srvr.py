@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
+import os.path
 import threading
 
-#from collections import deque
+from collections import deque
 import warnings
 from concurrent.futures import ThreadPoolExecutor
-from traceback import format_exc
+from traceback import extract_tb, format_exception_only
 
 import click
 import hdbscan
@@ -13,9 +14,9 @@ import orjson
 import pandas as pd
 import requests
 import zmq
-from seaborn import diverging_palette, set_theme #cubehelix_palette
+from seaborn import diverging_palette, set_theme  #cubehelix_palette
 
-
+warn = warnings.warn
 def tprint(*args, **kwargs):
     """ Wrapper for printing with threads """
     print(*args, flush=True, **kwargs)
@@ -108,12 +109,12 @@ class Plot3Dv:
 class DebugThreadPoolExecutor(ThreadPoolExecutor):
     """ Wrapper for ThreadPoolExecutor that delivers Warnings & Exceptions from Threads """
 
-    def __init__(self, *args, non_blocking: bool, verbose: bool, **kwargs):
+    def __init__(self, *args, non_blocking: bool, verbose: int, **kwargs):
         super().__init__(*args, **kwargs)
         self.non_blocking = non_blocking
         self.verbose = verbose
-        self._exception = None
-        self._warnings = None
+        self._exceptions_queue = deque()
+        self._warnings_queue = deque()
 
     def submit(self, fn, *args, **kwargs):
         def wrapped_fn(*args, **kwargs):
@@ -122,29 +123,37 @@ class DebugThreadPoolExecutor(ThreadPoolExecutor):
                 try:
                     result = fn(*args, **kwargs)
                 except Exception as e:
-                    self._exception = e
+                    self._exceptions_queue.append(e)
                 else:
-                    self._warnings = captured_warnings
+                    for w in captured_warnings:
+                        if 'hdbscan' not in w.category.__module__:
+                            self._warnings_queue.append(w)
                     return result
-        return super().submit(wrapped_fn, *args, **kwargs)
+
+        future = super().submit(wrapped_fn, *args, **kwargs)
+        self.raise_exception()
+        return future
 
     def raise_exception(self):
-        if self._exception:
+        while self._exceptions_queue:
+            e = self._exceptions_queue.popleft()
+            tb = extract_tb(e.__traceback__)[-1]
+            exc_info = ''.join(format_exception_only(type(e), e)).strip()
             if self.non_blocking:
                 # Print the exception without ending the program
-                tprint(f"Exception occurred: '{self._exception.message}'...\n'''\n{format_exc(self._exception)}\n''' => Exception Done.")
+                tprint(f"Exception occurred: '{exc_info}' => See: {os.path.basename(tb.filename)}:{tb.lineno}")
             else:
                 # Raise the exception and end the program
-                raise self._exception
-        elif self._warnings:
-            if self.verbose:
-                [tprint(w) for w in pd.Series([f"WARNING :: '{_w.message}'" for _w in self._warnings]).unique()]
-            self._warnings = None
+                raise e
+        if self.verbose > 0:
+            while self._warnings_queue:
+                w = self._warnings_queue.popleft()
+                tprint(f"{pd.Timestamp.now().strftime('%X')} | WARN: {w.category.__name__}, '{w.message}'")
 
 class ZmqListener:
     """ Listener class for ZMQ Port """
 
-    def __init__(self, port="5555", verbose: bool = False):
+    def __init__(self, verbose: int, port: int = "5555"):
         self.port = port
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.SUB)
@@ -171,16 +180,16 @@ class DataAnalysis:
 
     def __init__(self,
                  internet_input: bool,
-                 mph_input: float,
+                 mps_input: float,
                  outlier_score_input: float,
                  normalize_input: bool,
                  alpha_score_input: float,
                  minimum_cluster_size_input: int,
                  fr_stack_size_input: int,
                  min_fr_b2b_input: int,
-                 verbose: bool):
+                 verbose: int):
         self.df = pd.DataFrame()
-        self.time = pd.Timestamp.now()
+        self.time = pd.Timestamp.now().strftime('%X')
         self.URL = "https://capstonebackend.herokuapp.com/api/playerData"
         self.HEADERS = { 'Content-type': 'application/json', 'Accept': 'text/plain' }
         self.sent_bbals = pd.Series(name='ts')
@@ -188,8 +197,8 @@ class DataAnalysis:
 
         # detection algo parameters
         self.STACK_SIZE = fr_stack_size_input # 20 (tested)
-        self.MIN_FR_B2B = min_fr_b2b_input # 5 (tested); formerly: BBALL_FRAME_SCATTER_LEN
-        self.MPH = mph_input # 17 mph (tested)
+        self.MIN_FR_B2B = min_fr_b2b_input # 7 (tested); formerly: BBALL_FRAME_SCATTER_LEN
+        self.MPS = mps_input # 17 m/s (tested)
         self.OUT_SCORE = outlier_score_input # 0.75 (tested)
         self.MIN_CLSTR = minimum_cluster_size_input # 3 (tested)
         self.ALPHA = alpha_score_input # 1.0 (tested)
@@ -220,53 +229,66 @@ class DataAnalysis:
         detects['dist'] = (detects['x'].pow(2) + detects['y'].pow(2) + detects['z'].pow(2)).pow(0.5)
 
         # pick ball@max_v using closest point, fallback to max velocity (fallback unlikely)
-        bball_v = detects.loc[detects['dist'] == detects['dist'].max()]
-
-        # DEBUG:  PROBLEM LINE BC ITS EMPTY.
+        bball_v = detects.loc[detects['dist'] == detects['dist'].min()]
         bball_v = bball_v.loc[bball_v['v'] == bball_v['v'].max()].iloc[0] # iloc[0] => convert to series
 
         # send point to server & log (always)
-        from numpy import sqrt
-        detail_str = f"v={bball_v['v']:.3f} m/s @ d={sqrt(bball_v['x']**2+bball_v['y']**2+bball_v['z']**2):<2.2f}m & ර={bball_v['outlier']:.3f}० @ ({bball_v['x']:.1f} {bball_v['y']:.1f} {bball_v['z']:.1f})m {len(detects):>2}=>1 pts"
-        if self.internet and bball_v['ts'] not in self.sent_bbals.values:
-            self.send_to_db(bball_v)
-            tprint(f"=({self.time})==> Posting bball to DB! {detail_str}")
-        else:
-            tprint(f"=({self.time})==> BBall Found! {detail_str}")
+        bball_v_ts = pd.Timestamp(bball_v['ts'], unit='ms')
+        if bball_v['ts'] not in self.sent_bbals.values:
+            bball_v['mph'] = bball_v['v'] / 2.23693629
+            tprint(f"=({self.time})==> BBall Found! v={bball_v['v']:.3f} m/s ({bball_v['mph']:.1f} mph) @ d={bball_v['dist']:<2.2f}m & ර={bball_v['outlier']:.3f}० @ ({bball_v['x']:.1f} {bball_v['y']:.1f} {bball_v['z']:.1f})m @ {bball_v_ts.strftime('%X')} & □ ={bball_v['frame'].astype(int):<3} {len(detects):>2}=>1 pts")
+
+            self.sent_bbals = pd.concat([self.sent_bbals, pd.Series(bball_v['ts'])], ignore_index=True)
+            if self.internet:
+                self.send_to_db(bball_v)
 
         # remove eval'd data from tmp_detections (thread-safe)
         with self._thread_lock:
             self.tmp_detections = self.tmp_detections.loc[ ~ self.tmp_detections['ts'].isin(detects['ts']) ]
 
+        if (live_detect_lag := (pd.Timestamp.now() - bball_v_ts).seconds) > self.MIN_FR_B2B*2:
+            warn(f"High load. -{live_detect_lag}s on live bball detections rn.", ResourceWarning)
+
 
     def send_to_db(self, bball: pd.Series):
         """ Send http POST to database / server """
+        # Prepare the data for sending
+        data = {'ts': bball['ts'], 'xyzv': bball.loc[['x', 'y', 'z', 'v']].tolist()}
+        data = orjson.dumps(data, option=orjson.OPT_SERIALIZE_NUMPY).decode('utf-8')
+
         try:
-            # post to server (header, json data, URL)
-            data = { 'ts': bball['ts'], 'xyzv': bball[['x','y','z','v']].tolist() }
-            data = orjson.dumps(data).decode('utf-8')
+            # Post to the server (header, json data, URL) & Track what frames are sent
             requests.post(url=self.URL, headers=self.HEADERS, data=data)
-            # track what frames are sent
-            self.sent_bbals = pd.concat([self.sent_bbals, pd.Series(bball['ts'])], ignore_index=True)
-            tprint(f"{self.time} | BBall sent. v={bball['v']}")
+            self.log(f"BBall sent! @{pd.Timestamp(bball['ts'], unit='ms').strftime('%X')} v={bball['v']}")
         except Exception as e:
-            tprint(f"{self.time} | FAILED TO POST -- bball={bball.to_dict()} -- err=...\n{format_exc(e)}")
+            self.log(f"FAILED TO POST. BALL_DATA={data}")
+            raise e
 
 
-    def _get_df_minmax(self, df: pd.DataFrame, col: str):
+    def log(self, s: str):
+        tprint(f"{self.time} | {s}")
+
+
+    def _get_df_minmax(self, dfA: pd.DataFrame, dfB: pd.DataFrame|str = None, col: str = 'frame'):
         """ Logging-aid to safely extract values for min/max in sticky situations """
-        try:
-            df_min, df_max = df[col].min(), df[col].max()
-        except Exception:
-            df_min, df_max = (0,0)
+        if dfB is not None:
+            try:
+                df_min, df_max = dfA[col].min(), dfB[col].max()
+            except Exception:
+                df_min, df_max = (0,0)
+        else:
+            try:
+                df_min, df_max = dfA[col].min(), dfA[col].max()
+            except Exception:
+                df_min, df_max = (0,0)
         return df_min, df_max
 
 
     def exec_df_get_bball(self, buffer_data: pd.DataFrame):
         """ End-to-end func for BBall Detection, Data Processing, Model, and DB Communication """
 
-        if self.verbose: # verbose logging pre-reqs for later in func
-            (buffer_max, df_og_max) = (buffer_data['frame'].max(), self.df['frame'].max())
+        if self.verbose > 0: # verbose logging pre-reqs for later in func
+            (buffer_max, df_og_max) = self._get_df_minmax(buffer_data, self.df, col='frame')
         self.time = pd.Timestamp.now().strftime('%X')
 
         # Scrub any negative velocities from buffer (+ prevent empty-df errors)
@@ -279,29 +301,29 @@ class DataAnalysis:
         # import pre-processed buffer & prune stack.
         self.df = pd.concat([self.df, buffer_data])
         self.df = self.df.loc[self.df['frame'] >= (buffer_data['frame'].max() - self.STACK_SIZE)]
+        if not self.internet:
+            self.df = self.df.loc[self.df['frame'] <= (buffer_data['frame'].max())]
 
-        if self.verbose:
-            df_min, df_max = self.df['buffer'].max(), self.df['buffer'].min()
-            buffer_max, curr_fr_len, frame_jump, len_curr_stack, skipped_frames = (
-                buffer_max, (df_max - df_min), (buffer_max - df_og_max), len(self.df),
+        if self.verbose > 1:
+            df_min, df_max = self._get_df_minmax(self.df, col='frame')
+            buffer_max, curr_fr_len, len_curr_stack, frame_jump, skipped_frames = (
+                buffer_max, (df_max - df_min), len(self.df), (buffer_max - df_og_max),
                 (0 if pd.isna(skf_diff := df_min - df_og_max) else max(0, skf_diff)) )
-            tprint(f"{self.time} | □={buffer_max:<6} - □ Range={curr_fr_len} - □ skipped={skipped_frames:>2} - □ jumped={frame_jump:>2} - #pts={len_curr_stack}")
+            self.log(f"□ ={buffer_max:<5} - □ Range={curr_fr_len:<2} - □ skipped={skipped_frames:<1} - □ jumped={frame_jump:<1} - #pts={len_curr_stack}")
 
         df = self.do_hdbscan(self.df, self.MIN_CLSTR, self.ALPHA, norm=self.NORM)
 
         # filter bballs
-        df = df.loc[(df['v'] >= self.MPH) & (df['outlier'] >= self.OUT_SCORE)].drop_duplicates()
+        df = df.loc[(df['v'] >= self.MPS) & (df['outlier'] >= self.OUT_SCORE)].drop_duplicates()
 
         if len(df) > 0:
-            # MAYBE TAKE OUT THIS LINE -- logging for it instead.
             df = df.loc[(df['v'] == df['v'].max())]
             bball = df.iloc[0:]
-            #if len(df) > 1:  tprint(f"--- AFTER HDBSCAN. LEN OF DF == {len(df)} --- DF=...\n{df}")
             with self._thread_lock:
                 self.tmp_detections = pd.concat([self.tmp_detections, bball], ignore_index=True).drop_duplicates()
 
-        ## DEBUG:  ADD DELAY
-        #sleep(random() % 0.3)
+        ## DEBUG & Stres Test: Add Delay
+        #from time import sleep; from random import random; sleep(random() % 1.6);
 
         # thread safety / return copies of relevant dataframes
         with self._thread_lock:
@@ -311,7 +333,7 @@ class DataAnalysis:
     def do_hdbscan(self, df_in: pd.DataFrame, min_clstrs: int, alpha: float, norm: bool = False) -> pd.DataFrame:
         """ Executes HDBSCAN algorithm returning `outlier` (& optionally `clstr`) column(s). """
 
-        # disable warning -- bug in hdbscan
+        # disable hdbscan warning -- library bug
         warnings.filterwarnings('ignore', category=RuntimeWarning)
 
         # copy-before-write (on slice) safety
@@ -323,14 +345,14 @@ class DataAnalysis:
             df[['x','y','z','v']] = df[['x','y','z','v']].apply(lambda x: (x - x.min()) / (x.max() - x.min())).fillna(0)
 
         if len(df) >= 4:
-            scan = hdbscan.HDBSCAN(min_cluster_size=min_clstrs, algorithm='best', alpha=alpha, metric='euclidean')
+            scan = hdbscan.HDBSCAN(min_cluster_size=min_clstrs, algorithm='best', alpha=alpha, metric='euclidean', allow_single_cluster=True)
             model = scan.fit(df[['x','y','z','v']])
             df = df.assign(outlier=model.outlier_scores_, clstr=model.labels_)
             df['outlier'].fillna(0, inplace=True)
         else:
             df = df.assign(outlier=0, clstr=0)
-            if self.verbose:
-                tprint(f"{self.time} | WARN: hdbscan skipped, len too short -- len(df)={len(df_in)}, v_max={df_in['v'].max()}")
+            if self.verbose > 0:
+                warn(f"hdbscan skipped, len too short -- len(df)={len(df_in)}, v_max={df_in['v'].max():<0.3f}", BytesWarning)
 
         return df
 
@@ -340,18 +362,18 @@ class DataAnalysis:
         pass
 
 @click.command(context_settings=dict(help_option_names=['-h','--help'], max_content_width=90))
-@click.option("-m", "--mph", type=float, default=17, show_default=True, help="Set the minimum cutoff speed (mph) at which outliers are tested to be baseballs")
+@click.option("-m", "--mps", type=float, default=17, show_default=True, help="Set the minimum cutoff speed (m/s) at which outliers are tested to be baseballs")
 @click.option("-o", "--outlier-score", type=click.FloatRange(0.01, 0.99), default=0.75, show_default=True, help="Set the cutoff minimum outllier score to test for baseballs with")
 @click.option("-N", "--normalize", is_flag=True, default=False, show_default=True, help="Flag to normalize the dimensional readings before running HDBSCAN algo!")
-@click.option("-a", "--alpha", type=click.FloatRange(0.01, 0.99), default=1.00, show_default=True, help="Set the cutoff minimum outllier score to test for baseballs with")
+@click.option("-a", "--alpha", type=click.FloatRange(0.0, 2.0), default=1.00, show_default=True, help="Set the cutoff minimum outllier score to test for baseballs with")
 @click.option("-n", "--min-cluster-size", type=int, default=3, show_default=True, help="Set frame lag for the Live 3D plot")
 @click.option("-fSTACK", "--frame-stack-size", type=int, default=20, show_default=True, help="Set the frame stack height of temporal points that will be concat'd")
-@click.option("-fB2B", "--min-frames-ball2ball", type=int, default=5, show_default=True, help="Set the minimum # of frames between baseballs (to separate clusters)")
+@click.option("-fB2B", "--min-frames-ball2ball", type=int, default=7, show_default=True, help="Set the minimum # of frames between baseballs (to separate clusters)")
 @click.option("-p", "--plot/--no-plot", is_flag=True, default=False, show_default=True, help="▲▽ Enable Live 3D Plot △▼")
 @click.option("-fLAG", "--frame-lag", type=int, default=20, show_default=True, help="Set frame lag for the Live 3D plot")
 @click.option("-i", "--internet/--no-internet", is_flag=True, default=False, show_default=True, help="Enable sending actual http.POSTs to the server")#default=True
-@click.option("-v", "--verbose", is_flag=True, default=False, help="Increase Output Verbosity")
-def main(mph: float, outlier_score: float, normalize: bool, alpha: float, min_cluster_size: int, frame_stack_size: int, min_frames_ball2ball: int, plot: bool, frame_lag: int, internet: bool, verbose: bool, **kwargs):
+@click.option("-v", "--verbose", count=True, default=False, help="Increase Output Verbosity")
+def main(mps: float, outlier_score: float, normalize: bool, alpha: float, min_cluster_size: int, frame_stack_size: int, min_frames_ball2ball: int, plot: bool, frame_lag: int, internet: bool, verbose: int, **kwargs):
     """Launch ZMQ-Reader service to parse, analyze, & process . Plot data live in a colored, 3D Scatter plot.
         
     \b
@@ -368,31 +390,15 @@ def main(mph: float, outlier_score: float, normalize: bool, alpha: float, min_cl
 
     \b
     Tested Config:
-    ./srvr.py  --no-internet --mph 17 --outlier-score 0.75 --alpha 1.0 --min-cluster-size 3 -fB2B 5 -fSTACK 20 --plot -fLAG 20 [-v]
+    ./srvr.py  --no-internet --mps 17 --outlier-score 0.75 --alpha 1.0 --min-cluster-size 3 -fB2B 7 -fSTACK 20 --plot -fLAG 20 [-vv]
     
     """
-    tprint(f"**kwargs = '{kwargs}'")
-    #fr_stack_size
-    #min_fr_b2b
-    #fr_stack_size: int, min_fr_b2b: int,
-    #frame_stack_size=20, min_frames_ball2ball: int  =5
-
-
-    ## detection algo parameters
-    #self - STACK_SIZE = fr_stack_size_input # 20 (tested)
-    #self - MIN_FR_B2B = min_fr_b2b_input # 5 (tested); formerly: BBALL_FRAME_SCATTER_LEN
-    #self - MPH = mph_input # 17 mph (tested)
-    #self - OUT_SCORE = outlier_score_input # 0.75 (tested)
-    #self - MIN_CLSTR = minimum_cluster_size_input # 3 (tested)
-    #self - ALPHA = alpha_score_input # 1.0 (tested)
-    #self - NORM = normalize_input # false (tested)
-
 
     # generate
     zmq_listener = ZmqListener(verbose=verbose)
     data_analysis = DataAnalysis(
         internet_input=internet,
-        mph_input=mph,
+        mps_input=mps,
         outlier_score_input=outlier_score,
         normalize_input=normalize,
         alpha_score_input=alpha,
@@ -407,15 +413,11 @@ def main(mph: float, outlier_score: float, normalize: bool, alpha: float, min_cl
     if plot:
         plotter = Plot3Dv(frame_lag=frame_lag)
 
-    if verbose:
-        print("=> Entering loop...")
+    if verbose > 0:
+        tprint(f"=({data_analysis.time})==> Entering loop...")
 
     for df_line in zmq_listener.listen():
         zmq_listener.append_to_buffer(df_line)
-
-        # Raise any exceptions in worker threads
-        analysis_executor.raise_exception()
-        handle_executor.raise_exception()
 
         if plot:
             plotter.add_pts(df_line)
