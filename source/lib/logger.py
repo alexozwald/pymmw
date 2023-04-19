@@ -3,7 +3,7 @@ from pandas import Timestamp, DataFrame
 import orjson
 from sys import stderr
 import zmq as zmq
-
+from traceback import extract_tb, format_exception_only
 
 class Logger:
 
@@ -21,15 +21,20 @@ class Logger:
         # generate log file & ~line-buffer~
         self.log_out = open(self.log_file_path, 'w+b') # buffering=1 does nothing on bytes-obj 
 
-        # ZeroMQ setup 
         try:
+
+            # ZeroMQ setup 
             self.zmq_context = zmq.Context()
             self.zmq_publisher = self.zmq_context.socket(zmq.PUB)
             self.zmq_port = "5555"
             self.zmq_publisher.bind(f"tcp://*:{self.zmq_port}")
+
         except Exception as e:
-            from traceback import format_exc
-            print(format_exc(e), flush=True)
+
+            tb = extract_tb(e.__traceback__)[-1]
+            exc_info = ''.join(format_exception_only(type(e), e)).strip()
+            print(f"Exception occurred: '{exc_info}' => See: {os.path.basename(tb.filename)}:{tb.lineno}", flush=True, file=stderr)
+            raise e
 
 
     def message(self, dataFrame: dict):

@@ -40,12 +40,7 @@ class Plot3Dv:
         self.fig = plt.figure()
         self.ax = self.fig.add_subplot(111, projection='3d')
         self.ax.view_init(**view_angle_3d)
-        self.ax.set_xlabel('X')
-        self.ax.set_ylabel('Y')
-        self.ax.set_zlabel('Z')
-        self.ax.set_xlim(*self.bounds['x'])
-        self.ax.set_ylim(*self.bounds['y'])
-        self.ax.set_zlim(*self.bounds['z'])
+        self.ax.set(xlim=self.bounds['x'], ylim=self.bounds['y'], zlim=self.bounds['z'], xlabel='X', ylabel='Y', zlabel='Z')
 
         # pre-generate colorbar
         #self.cmap = cubehelix_palette(as_cmap=True)

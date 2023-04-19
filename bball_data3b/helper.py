@@ -9,13 +9,15 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib.widgets import Slider
+from os.path import basename, dirname
+from typing import Union
 
 def get_repo_dir():
     import subprocess
     repo_dir = subprocess.Popen(['git', 'rev-parse', '--show-toplevel'], stdout=subprocess.PIPE).communicate()[0].rstrip().decode('utf-8')
     return repo_dir
 
-def orjson_to_df(filepath: str|list[str]) -> pd.DataFrame:
+def orjson_to_df(filepath: Union[str,list[str]]) -> pd.DataFrame:
     from os.path import isfile
     df = pd.DataFrame()
     filepath = [filepath] if isinstance(filepath, str) else filepath
@@ -34,12 +36,32 @@ def orjson_to_df(filepath: str|list[str]) -> pd.DataFrame:
                 df = pd.concat([df, __df__[['ts','frame','x','y','z','v']]])
     return df
 
+def orjson_to_df2(filepath: Union[str,list[str]]) -> pd.DataFrame:
+    from os.path import isfile
+    df = pd.DataFrame()
+    filepath = [filepath] if isinstance(filepath, str) else filepath
+    
+    if not isinstance(filepath,list):
+        raise TypeError(f"filepaths")
+    for f in filepath:
+        if not isfile(f):
+            raise FileNotFoundError("your file dont exist homie")
+
+    for f in filepath:
+        filename, dir_group = basename(f), dirname(f).split('/')[-1][11:]
+        with open(f, 'rb') as f:
+            for line in f.readlines():
+                d = orjson.loads(line)
+                __df__ = pd.DataFrame(d['xyzv'], columns=['x','y','z','v']).assign(ts=d['ts'], frame=d['frame'], file=filename, dir=dir_group)
+                df = pd.concat([df, __df__[['dir','file','ts','frame','x','y','z','v']]])
+    return df
+
 def mk_stacks(df: pd.DataFrame, STACK_HEIGHT: int, STACK_ON='frame', SORT_COLS_LIST=['frame']) -> pd.DataFrame:
     df_out = df.assign(stack=df.apply(lambda r: np.arange(r[STACK_ON], r[STACK_ON]+(STACK_HEIGHT+1), dtype=np.int64), axis=1)).explode('stack').reset_index(drop=True)#.sort_values([SORT_COLS_LIST])
     df_out = df_out.loc[df_out[STACK_ON].isin(df[STACK_ON].unique())]
     return df_out
 
-def stacks_above_v(df_in: pd.DataFrame, TST_VEL: int|float, N_STACKS: int = 20):
+def stacks_above_v(df_in: pd.DataFrame, TST_VEL: Union[int,float], N_STACKS: int = 20):
     """ Get only stacks where velocity exceeds threshold. """
     df_out = df_in.copy(deep=True)    
     # Id all rows above threshold
@@ -55,7 +77,7 @@ def stacks_above_v(df_in: pd.DataFrame, TST_VEL: int|float, N_STACKS: int = 20):
     df_out = df_out.loc[df_out['stack'].isin(N_f_stacks)]
     return df_out
 
-def stack_over_v(df_in: pd.DataFrame, TST_VEL: int|float): #, N_STACKS: int = 20):
+def stack_over_v(df_in: pd.DataFrame, TST_VEL: Union[int,float]): #, N_STACKS: int = 20):
     """ Get only stacks where velocity exceeds threshold. """
     df_out = df_in.copy(deep=True)    
     rows_over_Vms = df_out.loc[df_out['v'].abs() >= TST_VEL]
@@ -71,11 +93,10 @@ def do_hdbscan(df_in: pd.DataFrame, MIN_CLSTRS: int, NORM: bool = False) -> pd.D
     df_in['v'] = df_in['v'].abs()
 
     # add normalization (done by column per-stack)
-    if NORM:
-        df[['stack','x','y','z','v']] = df[['stack','x','y','z','v']].groupby('stack').apply(lambda x: (x - x.min()) / (x.max() - x.min())).fillna(0).drop('stack',axis=1).reset_index('stack')
+    if NORM: df[['stack','x','y','z','v']] = df[['stack','x','y','z','v']].groupby('stack').apply(lambda x: (x - x.min()) / (x.max() - x.min())).fillna(0).drop('stack',axis=1).reset_index('stack')
 
     for stack,g in df_in.groupby('stack'):
-        scan = hdbscan.HDBSCAN(min_cluster_size=MIN_CLSTRS, algorithm='best', alpha=1.0, metric='euclidean')
+        scan = hdbscan.HDBSCAN(min_cluster_size=MIN_CLSTRS, algorithm='best', alpha=1.0, metric='euclidean', allow_single_cluster=True)
         g = g.copy(deep=True)
         model = scan.fit(g[['x','y','z','v']])
         g = g.assign(outlier=model.outlier_scores_, clstr=model.labels_)
@@ -264,6 +285,7 @@ def viz_slider(df: pd.DataFrame, ANIM_COL: str = 'stack', COLOR1_COL: str = 'v',
     plt.show()
 
 repo_dir = get_repo_dir()
+REPO_DIR = get_repo_dir()
 
 if __name__ == "__main__":
 

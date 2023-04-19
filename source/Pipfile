@@ -16,13 +16,13 @@ pyzmq = "*"
 requests = "*"
 scipy = "*"
 tiflash = "*"
-ipython = "*"
 pyarrow = "*"
-tabulate = "*"
 click = "*"
 seaborn = "*"
 
 [dev-packages]
+ipython = "*"
+tabulate = "*"
 
 [requires]
 python_version = "3"
